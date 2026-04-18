@@ -23,6 +23,8 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const SYSTEM_PROMPT = `You are a senior IPO analyst writing a briefing on upcoming initial public offerings for accredited investors. Your tone matches institutional IPO research notes: direct, data-grounded, and opinionated.
 
+MANDATORY: You MUST use web_search to find real, current IPO data before writing anything. NEVER fabricate, simulate, or invent companies, price ranges, subscription demand, or predictions. The examples below show format and methodology only — do not draw any data from them. If no IPOs are found, say so — do not invent filings.
+
 CRITICAL INSTRUCTION: Begin your response immediately with "IPO PIPELINE —" on the very first line. No preamble, no introduction.
 
 VOICE AND STYLE
@@ -112,7 +114,31 @@ const TOOLS: Anthropic.Messages.ToolUnion[] = [
 // Agent loop
 // ---------------------------------------------------------------------------
 
-const INITIAL_PROMPT = `Generate an IPO pipeline briefing for the next 30 days. Use web_search to find:
+function buildInitialPrompt(date?: string): string {
+  if (date) {
+    const formatted = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
+    return `Generate an IPO pipeline briefing for IPOs scheduled or expected on or about ${formatted}. Use web_search to find:
+
+1. Every IPO expected to price or begin trading on or around ${formatted} — search "IPO calendar ${formatted}" and "IPO pricing ${date.slice(0, 4)}" and the company names directly
+
+2. For each company found, search for pre-IPO secondary market prices on private share platforms. Search each company name alongside terms like:
+   - "[company] EquityZen"
+   - "[company] Forge Global"
+   - "[company] pre-IPO secondary market price"
+   - "[company] private shares price ${date.slice(0, 4)}"
+   - "[company] Nasdaq Private Market"
+   These prices are the strongest predictor of opening price and must be reported when found.
+
+3. For each company: filed price range, sector, lead underwriters, subscription demand commentary, and any analyst price targets
+
+4. Recent comparable IPOs in the same sectors
+
+Search sources: Renaissance Capital, Nasdaq IPO calendar, EquityZen, Forge Global, HIIVE, IPO Monitor, and recent news for each company.
+
+Then write the briefing exactly per the format in your instructions, with a prediction block for every IPO found on or near ${formatted}.`;
+  }
+
+  return `Generate an IPO pipeline briefing for the next 30 days. Use web_search to find:
 
 1. Every IPO expected to price or begin trading in the next 30 days — search "upcoming IPO calendar" and "IPO pipeline next 30 days"
 
@@ -131,20 +157,23 @@ const INITIAL_PROMPT = `Generate an IPO pipeline briefing for the next 30 days. 
 Search sources: Renaissance Capital, Nasdaq IPO calendar, EquityZen, Forge Global, HIIVE, IPO Monitor, and recent news for each company.
 
 Then write the briefing exactly per the format in your instructions, with a prediction block for every IPO found.`;
+}
 
 const MAX_CONTINUATIONS = 5;
+const MAX_ITERATIONS = 30;
 
-export async function generateIpo(apiKey: string, model: string): Promise<string> {
+export async function generateIpo(apiKey: string, model: string, date?: string): Promise<string> {
   const client = new Anthropic({ apiKey });
 
   const history: Anthropic.MessageParam[] = [
-    { role: 'user', content: INITIAL_PROMPT },
+    { role: 'user', content: buildInitialPrompt(date) },
   ];
 
   const allTextParts: string[] = [];
   let continuationCount = 0;
+  let iterations = 0;
 
-  while (true) {
+  while (iterations++ < MAX_ITERATIONS) {
     const response = await client.messages.create({
       model,
       max_tokens: 4096,
@@ -167,18 +196,15 @@ export async function generateIpo(apiKey: string, model: string): Promise<string
     }
 
     if (response.stop_reason === 'tool_use') {
-      const toolUseBlocks = response.content.filter(
+      // web_search_20260209 is fully server-side: the API executes the search
+      // and returns WebSearchToolResultBlock entries in response.content
+      // alongside ServerToolUseBlock. The client never executes searches or
+      // fabricates results — the real data is already in response.content.
+      const clientToolUseBlocks = response.content.filter(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
       );
-      if (toolUseBlocks.length > 0) {
-        history.push({
-          role: 'user',
-          content: toolUseBlocks.map(b => ({
-            type: 'tool_result' as const,
-            tool_use_id: b.id,
-            content: '(search complete)',
-          })),
-        });
+      if (clientToolUseBlocks.length > 0) {
+        return '(error: unexpected client-side tool_use with no handler)';
       }
       continue;
     }

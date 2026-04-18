@@ -13,6 +13,8 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const SYSTEM_PROMPT = `You are a senior portfolio manager with 20+ years experience writing a concise daily market briefing for accredited investors.
 
+MANDATORY: You MUST use web_search to find real, current market data before writing anything. NEVER fabricate, simulate, or invent market data, ticker moves, or percentages. The examples below show format and voice only — do not draw any numbers from them. If search results are insufficient, say so — do not make up data.
+
 CRITICAL INSTRUCTION: Begin your response immediately with "BETS —" on the very first line. No preamble, no introduction, no "here is the briefing" — start directly with the briefing.
 
 VOICE AND STYLE
@@ -118,6 +120,7 @@ const INITIAL_PROMPT = `Generate today's market briefing. Use web_search to find
 Then write the briefing exactly per the format in your instructions.`;
 
 const MAX_CONTINUATIONS = 3;
+const MAX_ITERATIONS = 20;
 
 export async function generateBets(apiKey: string, model: string): Promise<string> {
   const client = new Anthropic({ apiKey });
@@ -128,8 +131,9 @@ export async function generateBets(apiKey: string, model: string): Promise<strin
 
   const allTextParts: string[] = [];
   let continuationCount = 0;
+  let iterations = 0;
 
-  while (true) {
+  while (iterations++ < MAX_ITERATIONS) {
     const response = await client.messages.create({
       model,
       max_tokens: 4096,
@@ -152,21 +156,15 @@ export async function generateBets(apiKey: string, model: string): Promise<strin
     }
 
     if (response.stop_reason === 'tool_use') {
-      // web_search_20260209 is server-side — results are already in response.content.
-      // Inject placeholder tool_result blocks so the conversation alternates
-      // user/assistant correctly and the model can continue writing.
-      const toolUseBlocks = response.content.filter(
+      // web_search_20260209 is fully server-side: the API executes the search
+      // and returns WebSearchToolResultBlock entries in response.content
+      // alongside ServerToolUseBlock. The client never executes searches or
+      // fabricates results — the real data is already in response.content.
+      const clientToolUseBlocks = response.content.filter(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
       );
-      if (toolUseBlocks.length > 0) {
-        history.push({
-          role: 'user',
-          content: toolUseBlocks.map(b => ({
-            type: 'tool_result' as const,
-            tool_use_id: b.id,
-            content: '(search complete)',
-          })),
-        });
+      if (clientToolUseBlocks.length > 0) {
+        return '(error: unexpected client-side tool_use with no handler)';
       }
       continue;
     }
