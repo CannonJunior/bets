@@ -111,10 +111,31 @@ const TOOLS: Anthropic.Messages.ToolUnion[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Agent loop
+// Agent loop — full pipeline
 // ---------------------------------------------------------------------------
 
-function buildInitialPrompt(date?: string): string {
+function buildInitialPrompt(date?: string, symbols?: string[]): string {
+  if (symbols && symbols.length > 0) {
+    const tickerList = symbols.join(', ');
+    return `Generate an IPO pipeline briefing covering ONLY these specific ticker symbols: ${tickerList}.
+
+Do not research or include any other IPOs. For each symbol in the list, use web_search to find:
+
+1. The company name, expected IPO date, and filed price range — search "[TICKER] IPO date 2026" and "[TICKER] IPO price range"
+
+2. Pre-IPO secondary market prices — search:
+   - "[company] EquityZen"
+   - "[company] Forge Global"
+   - "[company] pre-IPO secondary market price"
+   - "[company] Nasdaq Private Market"
+
+3. Sector, lead underwriters, subscription demand, and analyst price targets
+
+4. Recent comparable IPOs in the same sector
+
+Then write a prediction block for each symbol exactly per the format in your instructions. If a symbol is not found to have a pending IPO, note that and move on.`;
+  }
+
   if (date) {
     const formatted = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
     return `Generate an IPO pipeline briefing for IPOs scheduled or expected on or about ${formatted}. Use web_search to find:
@@ -162,11 +183,11 @@ Then write the briefing exactly per the format in your instructions, with a pred
 const MAX_CONTINUATIONS = 5;
 const MAX_ITERATIONS = 30;
 
-export async function generateIpo(apiKey: string, model: string, date?: string): Promise<string> {
+export async function generateIpo(apiKey: string, model: string, date?: string, symbols?: string[]): Promise<string> {
   const client = new Anthropic({ apiKey });
 
   const history: Anthropic.MessageParam[] = [
-    { role: 'user', content: buildInitialPrompt(date) },
+    { role: 'user', content: buildInitialPrompt(date, symbols) },
   ];
 
   const allTextParts: string[] = [];
@@ -221,4 +242,72 @@ export async function generateIpo(apiKey: string, model: string, date?: string):
 
   const text = allTextParts.join('').trim();
   return text || '(no IPO data found)';
+}
+
+// ---------------------------------------------------------------------------
+// Symbols-only mode: returns a compact list of tickers + expected dates
+// ---------------------------------------------------------------------------
+
+const SYMBOLS_SYSTEM_PROMPT = `You are an IPO calendar assistant. Return a compact plain-text list of upcoming IPO stock symbols and their expected pricing or trading dates. No analysis, no predictions, no extra commentary.
+
+MANDATORY: Use web_search to find real current data. NEVER fabricate tickers or dates.
+
+OUTPUT FORMAT — one entry per line, nothing else:
+TICKER — Company Name — Expected date (or "expected [Month YYYY]" if exact date unknown)
+
+Begin your response immediately with the first ticker line. No header, no preamble.`;
+
+const SYMBOLS_PROMPT = `Use web_search to find every IPO expected to price or begin trading in the next 60 days.
+Search: "upcoming IPO calendar 2026" and "IPO pipeline next 60 days"
+Sources: Renaissance Capital, Nasdaq IPO calendar, IPO Monitor.
+
+Return only a plain-text list of tickers, company names, and expected dates per the format in your instructions.`;
+
+export async function generateIpoSymbols(apiKey: string, model: string): Promise<string> {
+  const client = new Anthropic({ apiKey });
+
+  const history: Anthropic.MessageParam[] = [
+    { role: 'user', content: SYMBOLS_PROMPT },
+  ];
+
+  const allTextParts: string[] = [];
+  let iterations = 0;
+
+  while (iterations++ < 15) {
+    const response = await client.messages.create({
+      model,
+      max_tokens: 1024,
+      system: SYMBOLS_SYSTEM_PROMPT,
+      tools: TOOLS,
+      messages: history,
+    });
+
+    const textBlocks = response.content.filter(
+      (b): b is Anthropic.TextBlock => b.type === 'text',
+    );
+    if (textBlocks.length > 0) {
+      allTextParts.push(textBlocks.map(b => b.text).join(''));
+    }
+
+    history.push({ role: 'assistant', content: response.content });
+
+    if (response.stop_reason === 'end_turn') break;
+
+    if (response.stop_reason === 'tool_use') {
+      const clientToolUseBlocks = response.content.filter(
+        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+      );
+      if (clientToolUseBlocks.length > 0) {
+        return '(error: unexpected client-side tool_use with no handler)';
+      }
+      continue;
+    }
+
+    if (response.stop_reason === 'max_tokens') break;
+
+    return `(unexpected stop: ${response.stop_reason})`;
+  }
+
+  const text = allTextParts.join('').trim();
+  return text || '(no upcoming IPOs found)';
 }
