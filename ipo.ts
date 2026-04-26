@@ -106,7 +106,7 @@ const TOOLS: Anthropic.Messages.ToolUnion[] = [
   {
     type: 'web_search_20260209',
     name: 'web_search',
-    max_uses: 15,
+    max_uses: 5,
   },
 ];
 
