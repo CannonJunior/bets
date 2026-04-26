@@ -4,11 +4,9 @@
  * Style informed by: LPL Research, BlackRock Investment Institute, Howard Marks
  * memos, Seeking Alpha editorial standards, and Morning Brew Markets.
  */
-
 // ---------------------------------------------------------------------------
 // System prompt — style guide + few-shot examples
 // ---------------------------------------------------------------------------
-
 const SYSTEM_PROMPT = `You are a senior portfolio manager with 20+ years experience writing a concise daily market briefing for accredited investors.
 
 MANDATORY: You MUST use web_search to find real, current market data before writing anything. NEVER fabricate, simulate, or invent market data, ticker moves, or percentages. The examples below show format and voice only — do not draw any numbers from them. If search results are insufficient, say so — do not make up data.
@@ -92,11 +90,9 @@ Theme: AI Efficiency Shock
 DeepSeek R1 trained on ~$5M of compute vs. OpenAI's $100M+. If AI can be done cheaply, the $500B capex cycle underpinning Nvidia, Vertiv, and GE Vernova is in question.
 
 Takeaway: "A single GitHub repo overnight rewrote the assumptions behind trillions in market cap — the question isn't whether DeepSeek is a threat, it's whether the threat has been fully priced."`;
-
 // ---------------------------------------------------------------------------
 // Prompt
 // ---------------------------------------------------------------------------
-
 const INITIAL_PROMPT = `Generate today's market briefing. Use web_search to find:
 1. Today's S&P 500, Nasdaq, and Dow closing or current performance
 2. Today's top gaining and losing stocks with reasons
@@ -104,22 +100,14 @@ const INITIAL_PROMPT = `Generate today's market briefing. Use web_search to find
 4. Any unusually volatile moves worth highlighting
 
 Then write the briefing exactly per the format in your instructions.`;
-
-export type PromptRunner = (prompt: string) => Promise<{
-  success: boolean;
-  timedOut: boolean;
-  output: string;
-  duration_ms: number;
-  exit_code: number | null;
-}>;
-
-export async function generateBets(runPrompt: PromptRunner): Promise<string> {
-  const result = await runPrompt(SYSTEM_PROMPT + '\n\n' + INITIAL_PROMPT);
-  if (result.timedOut) {
-    const elapsed = (result.duration_ms / 1000).toFixed(0);
-    console.error(`[bets] generateBets timed out after ${elapsed}s; partial output: ${result.output.length} chars`);
-    if (result.output) return result.output + `\n\n(response cut short — timed out after ${elapsed}s)`;
-    return `Bets briefing timed out after ${elapsed}s with no output. Try again or check service logs.`;
-  }
-  return result.output.trim() || '(no briefing generated)';
+export async function generateBets(runPrompt) {
+    const result = await runPrompt(SYSTEM_PROMPT + '\n\n' + INITIAL_PROMPT);
+    if (result.timedOut) {
+        const elapsed = (result.duration_ms / 1000).toFixed(0);
+        console.error(`[bets] generateBets timed out after ${elapsed}s; partial output: ${result.output.length} chars`);
+        if (result.output)
+            return result.output + `\n\n(response cut short — timed out after ${elapsed}s)`;
+        return `Bets briefing timed out after ${elapsed}s with no output. Try again or check service logs.`;
+    }
+    return result.output.trim() || '(no briefing generated)';
 }

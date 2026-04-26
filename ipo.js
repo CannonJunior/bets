@@ -1,32 +1,6 @@
-/**
- * /ipo — Upcoming IPO calendar with day-1 open and close price predictions.
- *
- * Prediction methodology grounded in academic literature and practitioner data:
- *   - Subscription demand is the #1 predictor (55% of ML model importance)
- *   - Price revision from initial to final range is a strong secondary signal
- *   - Comparable company multiples set the valuation anchor
- *   - Sector momentum determines the sentiment premium
- *   - Underwriter tier correlates with pricing accuracy
- *
- * Benchmarks embedded in prompt:
- *   - 2025 median first-day pop: 13% | average: 22%
- *   - 2024 average first-day pop: 31%
- *   - 3-5x oversubscribed → expect 20-30% pop
- *   - 10x+ oversubscribed → expect 40%+ pop
- *   - Priced below range → flat or negative day 1
- */
-export type PromptRunner = (prompt: string) => Promise<{
-  success: boolean;
-  timedOut: boolean;
-  output: string;
-  duration_ms: number;
-  exit_code: number | null;
-}>;
-
 // ---------------------------------------------------------------------------
 // System prompt
 // ---------------------------------------------------------------------------
-
 const SYSTEM_PROMPT = `You are a senior IPO analyst writing a briefing on upcoming initial public offerings for accredited investors. Your tone matches institutional IPO research notes: direct, data-grounded, and opinionated.
 
 MANDATORY: You MUST use web_search to find real, current IPO data before writing anything. NEVER fabricate, simulate, or invent companies, price ranges, subscription demand, or predictions. The examples below show format and methodology only — do not draw any data from them. If no IPOs are found, say so — do not invent filings.
@@ -103,15 +77,13 @@ Demand: Oversubscribed ~6x; price range raised twice before final pricing
 Comparables: RocketLab (RKLB) at 15x revenue; Firefly priced at 11x — 27% discount to direct comparable
 Call: A twice-raised price range signals exceptional roadshow demand; the 27% discount to RKLB plus the space-tech momentum premium drives a high-probability pop above $55.
 Risk: Commercial launch cadence is lumpy — any mission anomaly before lock-up expiry would punish the stock disproportionately.`;
-
 // ---------------------------------------------------------------------------
 // Export functions
 // ---------------------------------------------------------------------------
-
-function buildInitialPrompt(date?: string, symbols?: string[]): string {
-  if (symbols && symbols.length > 0) {
-    const tickerList = symbols.join(', ');
-    return `Generate an IPO pipeline briefing covering ONLY these specific ticker symbols: ${tickerList}.
+function buildInitialPrompt(date, symbols) {
+    if (symbols && symbols.length > 0) {
+        const tickerList = symbols.join(', ');
+        return `Generate an IPO pipeline briefing covering ONLY these specific ticker symbols: ${tickerList}.
 
 Do not research or include any other IPOs. For each symbol in the list, use web_search to find:
 
@@ -128,11 +100,10 @@ Do not research or include any other IPOs. For each symbol in the list, use web_
 4. Recent comparable IPOs in the same sector
 
 Then write a prediction block for each symbol exactly per the format in your instructions. If a symbol is not found to have a pending IPO, note that and move on.`;
-  }
-
-  if (date) {
-    const formatted = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
-    return `Generate an IPO pipeline briefing for IPOs scheduled or expected on or about ${formatted}. Use web_search to find:
+    }
+    if (date) {
+        const formatted = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
+        return `Generate an IPO pipeline briefing for IPOs scheduled or expected on or about ${formatted}. Use web_search to find:
 
 1. Every IPO expected to price or begin trading on or around ${formatted} — search "IPO calendar ${formatted}" and "IPO pricing ${date.slice(0, 4)}" and the company names directly
 
@@ -151,9 +122,8 @@ Then write a prediction block for each symbol exactly per the format in your ins
 Search sources: Renaissance Capital, Nasdaq IPO calendar, EquityZen, Forge Global, HIIVE, IPO Monitor, and recent news for each company.
 
 Then write the briefing exactly per the format in your instructions, with a prediction block for every IPO found on or near ${formatted}.`;
-  }
-
-  return `Generate an IPO pipeline briefing for the next 30 days. Use web_search to find:
+    }
+    return `Generate an IPO pipeline briefing for the next 30 days. Use web_search to find:
 
 1. Every IPO expected to price or begin trading in the next 30 days — search "upcoming IPO calendar" and "IPO pipeline next 30 days"
 
@@ -173,22 +143,20 @@ Search sources: Renaissance Capital, Nasdaq IPO calendar, EquityZen, Forge Globa
 
 Then write the briefing exactly per the format in your instructions, with a prediction block for every IPO found.`;
 }
-
-export async function generateIpo(runPrompt: PromptRunner, date?: string, symbols?: string[]): Promise<string> {
-  const result = await runPrompt(SYSTEM_PROMPT + '\n\n' + buildInitialPrompt(date, symbols));
-  if (result.timedOut) {
-    const elapsed = (result.duration_ms / 1000).toFixed(0);
-    console.error(`[ipo] generateIpo timed out after ${elapsed}s; partial output: ${result.output.length} chars`);
-    if (result.output) return result.output + `\n\n(response cut short — timed out after ${elapsed}s)`;
-    return `IPO research timed out after ${elapsed}s with no output. Try /ipo -s for a faster symbol list, or check service logs.`;
-  }
-  return result.output.trim() || '(no IPO data found)';
+export async function generateIpo(runPrompt, date, symbols) {
+    const result = await runPrompt(SYSTEM_PROMPT + '\n\n' + buildInitialPrompt(date, symbols));
+    if (result.timedOut) {
+        const elapsed = (result.duration_ms / 1000).toFixed(0);
+        console.error(`[ipo] generateIpo timed out after ${elapsed}s; partial output: ${result.output.length} chars`);
+        if (result.output)
+            return result.output + `\n\n(response cut short — timed out after ${elapsed}s)`;
+        return `IPO research timed out after ${elapsed}s with no output. Try /ipo -s for a faster symbol list, or check service logs.`;
+    }
+    return result.output.trim() || '(no IPO data found)';
 }
-
 // ---------------------------------------------------------------------------
 // Symbols-only mode: returns a compact list of tickers + expected dates
 // ---------------------------------------------------------------------------
-
 const SYMBOLS_SYSTEM_PROMPT = `You are an IPO calendar assistant. Return a compact plain-text list of upcoming IPO stock symbols and their expected pricing or trading dates. No analysis, no predictions, no extra commentary.
 
 MANDATORY: Use web_search to find real current data. NEVER fabricate tickers or dates.
@@ -197,20 +165,19 @@ OUTPUT FORMAT — one entry per line, nothing else:
 TICKER — Company Name — Expected date (or "expected [Month YYYY]" if exact date unknown)
 
 Begin your response immediately with the first ticker line. No header, no preamble.`;
-
 const SYMBOLS_PROMPT = `Use web_search to find every IPO expected to price or begin trading in the next 60 days.
 Search: "upcoming IPO calendar 2026" and "IPO pipeline next 60 days"
 Sources: Renaissance Capital, Nasdaq IPO calendar, IPO Monitor.
 
 Return only a plain-text list of tickers, company names, and expected dates per the format in your instructions.`;
-
-export async function generateIpoSymbols(runPrompt: PromptRunner): Promise<string> {
-  const result = await runPrompt(SYMBOLS_SYSTEM_PROMPT + '\n\n' + SYMBOLS_PROMPT);
-  if (result.timedOut) {
-    const elapsed = (result.duration_ms / 1000).toFixed(0);
-    console.error(`[ipo] generateIpoSymbols timed out after ${elapsed}s; partial output: ${result.output.length} chars`);
-    if (result.output) return result.output + `\n\n(list may be incomplete — timed out after ${elapsed}s)`;
-    return `IPO symbol lookup timed out after ${elapsed}s with no output. Check service logs.`;
-  }
-  return result.output.trim() || '(no upcoming IPOs found)';
+export async function generateIpoSymbols(runPrompt) {
+    const result = await runPrompt(SYMBOLS_SYSTEM_PROMPT + '\n\n' + SYMBOLS_PROMPT);
+    if (result.timedOut) {
+        const elapsed = (result.duration_ms / 1000).toFixed(0);
+        console.error(`[ipo] generateIpoSymbols timed out after ${elapsed}s; partial output: ${result.output.length} chars`);
+        if (result.output)
+            return result.output + `\n\n(list may be incomplete — timed out after ${elapsed}s)`;
+        return `IPO symbol lookup timed out after ${elapsed}s with no output. Check service logs.`;
+    }
+    return result.output.trim() || '(no upcoming IPOs found)';
 }

@@ -18,7 +18,13 @@
  *   handleAlpha(arg, client, model)  — slash-command handler
  *   runAlphaDaily(client, model)     — cron-job entry point
  */
-import Anthropic from '@anthropic-ai/sdk';
+type PromptRunner = (prompt: string) => Promise<{
+  success: boolean;
+  timedOut: boolean;
+  output: string;
+  duration_ms: number;
+  exit_code: number | null;
+}>;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -407,13 +413,8 @@ OUTPUT RULES — critical:
 - Cover: revenue vs estimate, key segment/driver, guidance direction, one analyst reaction, one risk.
 - If the company has not yet reported this quarter, state that and give the expected report date.`;
 
-const ALPHA_TOOLS: Anthropic.Messages.ToolUnion[] = [
-  { type: 'web_search_20260209', name: 'web_search', max_uses: 6 },
-];
-
 async function fetchAiContext(
-  client: Anthropic,
-  model: string,
+  runPrompt: PromptRunner,
   ticker: string,
   name: string,
 ): Promise<string> {
@@ -422,6 +423,7 @@ async function fetchAiContext(
   });
 
   const prompt =
+    ALPHA_SYSTEM + '\n\n' +
     `Analyze the most recent earnings report for ${name} (${ticker}) as of ${today}.\n\n` +
     `Search:\n` +
     `1. "${ticker} earnings results Q1 2026"\n` +
@@ -434,38 +436,14 @@ async function fetchAiContext(
     `- One analyst reaction or target change\n` +
     `- One key risk or watch item`;
 
-  const history: Anthropic.MessageParam[] = [
-    { role: 'user', content: prompt },
-  ];
-  const parts: string[] = [];
-  let iters = 0;
-
-  while (iters++ < 12) {
-    const resp = await client.messages.create({
-      model,
-      max_tokens: 1024,
-      system: ALPHA_SYSTEM,
-      tools: ALPHA_TOOLS,
-      messages: history,
-    });
-
-    const textBlocks = resp.content.filter((b): b is Anthropic.TextBlock => b.type === 'text');
-    if (textBlocks.length > 0) parts.push(textBlocks.map(b => b.text).join(''));
-
-    history.push({ role: 'assistant', content: resp.content });
-
-    if (resp.stop_reason === 'end_turn') break;
-    if (resp.stop_reason === 'tool_use') {
-      const clientTools = resp.content.filter(
-        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
-      );
-      if (clientTools.length > 0) return '(unexpected client tool_use)';
-      continue;
-    }
-    break;
+  const result = await runPrompt(prompt);
+  if (result.timedOut) {
+    const elapsed = (result.duration_ms / 1000).toFixed(0);
+    console.error(`[alpha] fetchAiContext timed out for ${ticker} after ${elapsed}s; partial output: ${result.output.length} chars`);
+    if (result.output) return result.output.trim() + `\n(context cut short — timed out after ${elapsed}s)`;
+    return '';
   }
-
-  return parts.join('').trim();
+  return result.output.trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -474,8 +452,7 @@ async function fetchAiContext(
 
 async function analyzeOne(
   ticker: string,
-  client: Anthropic,
-  model: string,
+  runPrompt: PromptRunner,
   avKey: string | undefined,
   skipAi: boolean = false,
 ): Promise<string> {
@@ -495,7 +472,7 @@ async function analyzeOne(
   }
 
   const sig = score(quarters, eps, overview);
-  const aiContext = skipAi ? '' : await fetchAiContext(client, model, t, overview?.name ?? t);
+  const aiContext = skipAi ? '' : await fetchAiContext(runPrompt, t, overview?.name ?? t);
 
   return buildReport(t, overview, quarters, eps, sig, aiContext);
 }
@@ -583,8 +560,7 @@ async function buildWeekCalendar(avKey: string | undefined): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export async function runAlphaDaily(
-  client: Anthropic,
-  model: string,
+  runPrompt: PromptRunner,
 ): Promise<string> {
   const avKey = process.env.ALPHA_VANTAGE_API_KEY;
   const today = todayStr();
@@ -605,7 +581,7 @@ export async function runAlphaDaily(
 
   for (const event of toAnalyze) {
     try {
-      const report = await analyzeOne(event.symbol, client, model, avKey);
+      const report = await analyzeOne(event.symbol, runPrompt, avKey);
       lines.push(report);
       lines.push('---');
     } catch (err) {
@@ -629,8 +605,7 @@ export async function runAlphaDaily(
 
 export async function handleAlpha(
   arg: string,
-  client: Anthropic,
-  model: string,
+  runPrompt: PromptRunner,
 ): Promise<string> {
   const avKey = process.env.ALPHA_VANTAGE_API_KEY;
   const trimmed = arg.trim();
@@ -680,7 +655,7 @@ export async function handleAlpha(
 
     for (const event of toAnalyze) {
       try {
-        parts.push(await analyzeOne(event.symbol, client, model, avKey));
+        parts.push(await analyzeOne(event.symbol, runPrompt, avKey));
         parts.push('');
       } catch (err) {
         parts.push(`${event.symbol}: failed — ${err instanceof Error ? err.message : String(err)}`);
@@ -705,7 +680,7 @@ export async function handleAlpha(
     ];
     for (const t of rawTickers) {
       try {
-        parts.push(await analyzeOne(t, client, model, undefined));
+        parts.push(await analyzeOne(t, runPrompt, undefined));
         parts.push('');
       } catch (err) {
         parts.push(`${t}: failed — ${err instanceof Error ? err.message : String(err)}`);
@@ -718,7 +693,7 @@ export async function handleAlpha(
   const parts: string[] = [];
   for (const t of rawTickers) {
     try {
-      parts.push(await analyzeOne(t, client, model, avKey));
+      parts.push(await analyzeOne(t, runPrompt, avKey));
       parts.push('');
     } catch (err) {
       parts.push(`${t}: failed — ${err instanceof Error ? err.message : String(err)}`);
