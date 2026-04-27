@@ -419,12 +419,12 @@ async function buildWeekCalendar(avKey) {
         events = all.filter(e => e.reportDate >= from && e.reportDate <= to);
     }
     else {
-        // Fetch each day via Nasdaq API
-        for (let d = 0; d <= 7; d++) {
+        // Fetch each day via Nasdaq API in parallel
+        const days = await Promise.all(Array.from({ length: 8 }, (_, d) => {
             const date = new Date(Date.now() + d * 86400_000).toISOString().slice(0, 10);
-            const day = await fetchNasdaqCalendar(date);
-            events.push(...day);
-        }
+            return fetchNasdaqCalendar(date);
+        }));
+        events = days.flat();
     }
     if (events.length === 0) {
         return 'No earnings events found for the next 7 days.';

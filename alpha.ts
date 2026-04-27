@@ -523,12 +523,14 @@ async function buildWeekCalendar(avKey: string | undefined): Promise<string> {
     const all = await fetchAvCalendar(avKey, '3month');
     events = all.filter(e => e.reportDate >= from && e.reportDate <= to);
   } else {
-    // Fetch each day via Nasdaq API
-    for (let d = 0; d <= 7; d++) {
-      const date = new Date(Date.now() + d * 86400_000).toISOString().slice(0, 10);
-      const day  = await fetchNasdaqCalendar(date);
-      events.push(...day);
-    }
+    // Fetch each day via Nasdaq API in parallel
+    const days = await Promise.all(
+      Array.from({ length: 8 }, (_, d) => {
+        const date = new Date(Date.now() + d * 86400_000).toISOString().slice(0, 10);
+        return fetchNasdaqCalendar(date);
+      }),
+    );
+    events = days.flat();
   }
 
   if (events.length === 0) {
