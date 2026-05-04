@@ -75,30 +75,12 @@ Comparables: [1-2 peer tickers and their current multiples]
 Call: [one sentence explaining the prediction — cite secondary market price if used]
 Risk: [one sentence on the biggest downside risk to the prediction]
 
-EXAMPLES — study the format and prediction logic only, do not repeat these:
+EXAMPLE — study the format and prediction logic only, do not repeat this:
 
-EXAMPLE A (strong pop — AI sector, Tier 1 underwriter, pricing above range):
-Astera Labs (ALAB)
-Date: March 20 2024 — Sector: AI connectivity semiconductors
-Range: $27-$30 — Predicted open: $42 — Predicted day-1 close: $58
-Demand: Oversubscribed ~8x; price revised up from initial range to $36
-Comparables: MRVL at 12x revenue, CRUS at 9x — ALAB priced at 8x, meaningful discount
-Call: Tier 1 bookrunners plus AI-sector tailwind plus below-peer-multiple pricing creates a high-conviction pop; the oversubscription multiple confirms institutional demand well exceeds available float.
-Risk: If AI capex narrative softens before lock-up expiry, the premium multiple could compress quickly post-pop.
-
-EXAMPLE B (flat debut — priced below range, muted demand):
-CoreWeave (CRWV)
-Date: March 28 2025 — Sector: Cloud AI infrastructure
-Range: $47-$55 — Predicted open: $39 — Predicted day-1 close: $40
-Demand: At parity or undersubscribed; priced at $40, 13% below bottom of range
-Comparables: AMZN AWS at 10x revenue, MSFT Azure implied 12x — CRWV priced at ~7x but with far lower margin profile
-Call: Pricing below range is the clearest signal of insufficient institutional demand; despite Nvidia backing and AI tailwinds, the margin structure and competition from hyperscalers made the valuation uncompelling at the original range.
-Risk: A flat or down first day creates negative sentiment momentum that can persist for weeks as early investors exit.
-
-EXAMPLE C (sector pop — space tech, strong demand):
 Firefly Aerospace (FLY)
 Date: August 7 2025 — Sector: Commercial space launch
-Range: $35-$39 (raised to $41-$43, final $45) — Predicted open: $52 — Predicted day-1 close: $60
+Range: $35-$39 (raised to $41-$43, final $45) — Secondary market: N/A
+Predicted open: $52 — Predicted day-1 close: $60
 Demand: Oversubscribed ~6x; price range raised twice before final pricing
 Comparables: RocketLab (RKLB) at 15x revenue; Firefly priced at 11x — 27% discount to direct comparable
 Call: A twice-raised price range signals exceptional roadshow demand; the 27% discount to RKLB plus the space-tech momentum premium drives a high-probability pop above $55.
@@ -108,74 +90,59 @@ Risk: Commercial launch cadence is lumpy — any mission anomaly before lock-up 
 // Export functions
 // ---------------------------------------------------------------------------
 
-function buildInitialPrompt(date?: string, symbols?: string[]): string {
+function buildInitialPrompt(date?: string, symbols?: string[], count?: number): string {
   if (symbols && symbols.length > 0) {
     const tickerList = symbols.join(', ');
     return `Generate an IPO pipeline briefing covering ONLY these specific ticker symbols: ${tickerList}.
 
-Do not research or include any other IPOs. For each symbol in the list, use web_search to find:
+Do not research or include any other IPOs. For each symbol, use web_search to find:
 
-1. The company name, expected IPO date, and filed price range — search "[TICKER] IPO date 2026" and "[TICKER] IPO price range"
+1. Company name, expected IPO date, and filed price range — search "[TICKER] IPO 2026"
 
-2. Pre-IPO secondary market prices — search:
-   - "[company] EquityZen"
-   - "[company] Forge Global"
-   - "[company] pre-IPO secondary market price"
-   - "[company] Nasdaq Private Market"
+2. Pre-IPO secondary market price — ONE combined search per company:
+   "[company] pre-IPO secondary market price EquityZen OR Forge OR HIIVE"
 
 3. Sector, lead underwriters, subscription demand, and analyst price targets
 
 4. Recent comparable IPOs in the same sector
 
-Then write a prediction block for each symbol exactly per the format in your instructions. If a symbol is not found to have a pending IPO, note that and move on.`;
+Then write a prediction block for each symbol exactly per the format in your instructions. If a symbol has no pending IPO, note it and move on.`;
   }
+
+  const n = count ?? 5;
 
   if (date) {
     const formatted = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
-    return `Generate an IPO pipeline briefing for IPOs scheduled or expected on or about ${formatted}. Use web_search to find:
+    return `Generate an IPO pipeline briefing for IPOs scheduled or expected on or about ${formatted}. Cover at most ${n} IPOs. Use web_search to find:
 
-1. Every IPO expected to price or begin trading on or around ${formatted} — search "IPO calendar ${formatted}" and "IPO pricing ${date.slice(0, 4)}" and the company names directly
+1. Every IPO expected to price or begin trading on or around ${formatted} — search "IPO calendar ${formatted}"
 
-2. For each company found, search for pre-IPO secondary market prices on private share platforms. Search each company name alongside terms like:
-   - "[company] EquityZen"
-   - "[company] Forge Global"
-   - "[company] pre-IPO secondary market price"
-   - "[company] private shares price ${date.slice(0, 4)}"
-   - "[company] Nasdaq Private Market"
-   These prices are the strongest predictor of opening price and must be reported when found.
+2. For each company found, run ONE combined search for secondary market prices:
+   "[company] pre-IPO secondary market price EquityZen OR Forge OR HIIVE"
 
-3. For each company: filed price range, sector, lead underwriters, subscription demand commentary, and any analyst price targets
+3. For each company: filed price range, sector, lead underwriters, and subscription demand
 
 4. Recent comparable IPOs in the same sectors
 
-Search sources: Renaissance Capital, Nasdaq IPO calendar, EquityZen, Forge Global, HIIVE, IPO Monitor, and recent news for each company.
-
-Then write the briefing exactly per the format in your instructions, with a prediction block for every IPO found on or near ${formatted}.`;
+Then write a prediction block for every IPO found on or near ${formatted}, exactly per the format in your instructions.`;
   }
 
-  return `Generate an IPO pipeline briefing for the next 30 days. Use web_search to find:
+  return `Generate an IPO pipeline briefing for the ${n} most imminent IPOs in the next 14 days. Use web_search to find:
 
-1. Every IPO expected to price or begin trading in the next 30 days — search "upcoming IPO calendar" and "IPO pipeline next 30 days"
+1. Upcoming IPOs — search "IPO calendar 2026" and identify the ${n} nearest pricing or trading dates. If fewer than ${n} are found in 14 days, extend to 30 days.
 
-2. For each company found, search for pre-IPO secondary market prices on private share platforms. Search each company name alongside terms like:
-   - "[company] EquityZen"
-   - "[company] Forge Global"
-   - "[company] pre-IPO secondary market price"
-   - "[company] private shares price 2026"
-   - "[company] Nasdaq Private Market"
-   These prices are the strongest predictor of opening price and must be reported when found.
+2. For each company, run ONE combined search for secondary market prices:
+   "[company] pre-IPO secondary market price EquityZen OR Forge OR HIIVE"
 
-3. For each company: filed price range, sector, lead underwriters, subscription demand commentary, and any analyst price targets
+3. For each company: filed price range, sector, lead underwriters, and subscription demand
 
 4. Recent comparable IPOs in the same sectors
 
-Search sources: Renaissance Capital, Nasdaq IPO calendar, EquityZen, Forge Global, HIIVE, IPO Monitor, and recent news for each company.
-
-Then write the briefing exactly per the format in your instructions, with a prediction block for every IPO found.`;
+Cover at most ${n} IPOs. Then write a prediction block for each, exactly per the format in your instructions.`;
 }
 
-export async function generateIpo(runPrompt: PromptRunner, date?: string, symbols?: string[]): Promise<string> {
-  const result = await runPrompt(SYSTEM_PROMPT + '\n\n' + buildInitialPrompt(date, symbols));
+export async function generateIpo(runPrompt: PromptRunner, date?: string, symbols?: string[], count?: number): Promise<string> {
+  const result = await runPrompt(SYSTEM_PROMPT + '\n\n' + buildInitialPrompt(date, symbols, count));
   if (result.timedOut) {
     const elapsed = (result.duration_ms / 1000).toFixed(0);
     console.error(`[ipo] generateIpo timed out after ${elapsed}s; partial output: ${result.output.length} chars`);
@@ -199,8 +166,7 @@ TICKER — Company Name — Expected date (or "expected [Month YYYY]" if exact d
 Begin your response immediately with the first ticker line. No header, no preamble.`;
 
 const SYMBOLS_PROMPT = `Use web_search to find every IPO expected to price or begin trading in the next 60 days.
-Search: "upcoming IPO calendar 2026" and "IPO pipeline next 60 days"
-Sources: Renaissance Capital, Nasdaq IPO calendar, IPO Monitor.
+Search: "upcoming IPO calendar 2026"
 
 Return only a plain-text list of tickers, company names, and expected dates per the format in your instructions.`;
 
